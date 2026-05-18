@@ -18,20 +18,24 @@ type ClientConfig struct {
 }
 
 type BackupOptions struct {
-	OutputDir    string
-	Collections  []string
-	BatchSize    int
-	Filter       string
-	StartedAtUTC time.Time
+	OutputDir     string
+	Collections   []string
+	BatchSize     int
+	ProgressEvery int64
+	Filter        string
+	Database      string
+	StartedAtUTC  time.Time
 }
 
 type RestoreOptions struct {
-	InputDir     string
-	Collections  []string
-	BatchSize    int
-	DropExisting bool
-	NameSuffix   string
-	StartedAtUTC time.Time
+	InputDir      string
+	Collections   []string
+	BatchSize     int
+	ProgressEvery int64
+	DropExisting  bool
+	NameSuffix    string
+	Database      string
+	StartedAtUTC  time.Time
 }
 
 type Manifest struct {

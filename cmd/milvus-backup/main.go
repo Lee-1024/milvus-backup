@@ -42,6 +42,7 @@ func runBackup(ctx context.Context, args []string) error {
 	out := fs.String("out", "backup", "backup output directory")
 	collections := fs.String("collections", "", "comma-separated collection names; empty means all collections")
 	batchSize := fs.Int("batch-size", 1000, "query iterator batch size")
+	progressEvery := fs.Int64("progress-every", 10000, "print progress every N rows; 0 disables row progress logs")
 	filter := fs.String("filter", "", "optional Milvus filter expression applied to every collection")
 	timeout := fs.Duration("timeout", 0, "operation timeout, for example 30m; 0 disables timeout")
 	_ = fs.Parse(args)
@@ -59,11 +60,13 @@ func runBackup(ctx context.Context, args []string) error {
 	defer client.Close(ctx)
 
 	opts := backup.BackupOptions{
-		OutputDir:    *out,
-		Collections:  splitCSV(*collections),
-		BatchSize:    *batchSize,
-		Filter:       *filter,
-		StartedAtUTC: time.Now().UTC(),
+		OutputDir:     *out,
+		Collections:   splitCSV(*collections),
+		BatchSize:     *batchSize,
+		ProgressEvery: *progressEvery,
+		Filter:        *filter,
+		Database:      cfg.DBName,
+		StartedAtUTC:  time.Now().UTC(),
 	}
 	return backup.Backup(ctx, client, opts)
 }
@@ -74,6 +77,7 @@ func runRestore(ctx context.Context, args []string) error {
 	in := fs.String("in", "backup", "backup input directory")
 	collections := fs.String("collections", "", "comma-separated collection names; empty means all collections from manifest")
 	batchSize := fs.Int("batch-size", 1000, "insert batch size")
+	progressEvery := fs.Int64("progress-every", 10000, "print progress every N rows; 0 disables row progress logs")
 	dropExisting := fs.Bool("drop-existing", false, "drop existing collections before restore")
 	suffix := fs.String("name-suffix", "", "append suffix to restored collection names")
 	timeout := fs.Duration("timeout", 0, "operation timeout, for example 30m; 0 disables timeout")
@@ -92,12 +96,14 @@ func runRestore(ctx context.Context, args []string) error {
 	defer client.Close(ctx)
 
 	opts := backup.RestoreOptions{
-		InputDir:     *in,
-		Collections:  splitCSV(*collections),
-		BatchSize:    *batchSize,
-		DropExisting: *dropExisting,
-		NameSuffix:   *suffix,
-		StartedAtUTC: time.Now().UTC(),
+		InputDir:      *in,
+		Collections:   splitCSV(*collections),
+		BatchSize:     *batchSize,
+		ProgressEvery: *progressEvery,
+		DropExisting:  *dropExisting,
+		NameSuffix:    *suffix,
+		Database:      cfg.DBName,
+		StartedAtUTC:  time.Now().UTC(),
 	}
 	return backup.Restore(ctx, client, opts)
 }

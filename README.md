@@ -21,6 +21,7 @@ go build -o bin/milvus-backup ./cmd/milvus-backup
 ```bash
 ./bin/milvus-backup backup \
   -address localhost:19530 \
+  -progress-every 10000 \
   -out ./backup
 ```
 
@@ -31,6 +32,7 @@ go build -o bin/milvus-backup ./cmd/milvus-backup
   -address localhost:19530 \
   -collections users,items \
   -batch-size 2000 \
+  -progress-every 5000 \
   -out ./backup
 ```
 
@@ -40,6 +42,7 @@ go build -o bin/milvus-backup ./cmd/milvus-backup
 ./bin/milvus-backup restore \
   -address localhost:19530 \
   -in ./backup \
+  -progress-every 10000 \
   -drop-existing
 ```
 
@@ -61,6 +64,7 @@ go build -o bin/milvus-backup ./cmd/milvus-backup
 - `-api-key`: API key
 - `-db`: database 名称
 - `-tls`: 启用 TLS
+- `-progress-every`: 每处理 N 行打印一次进度；设为 `0` 可关闭行数进度日志
 
 也可以使用环境变量：
 
