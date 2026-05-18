@@ -1,0 +1,54 @@
+package backup
+
+import (
+	"time"
+
+	"github.com/milvus-io/milvus/client/v2/entity"
+)
+
+const manifestFile = "manifest.json"
+
+type ClientConfig struct {
+	Address  string
+	Username string
+	Password string
+	APIKey   string
+	DBName   string
+	TLS      bool
+}
+
+type BackupOptions struct {
+	OutputDir    string
+	Collections  []string
+	BatchSize    int
+	Filter       string
+	StartedAtUTC time.Time
+}
+
+type RestoreOptions struct {
+	InputDir     string
+	Collections  []string
+	BatchSize    int
+	DropExisting bool
+	NameSuffix   string
+	StartedAtUTC time.Time
+}
+
+type Manifest struct {
+	Version     int                  `json:"version"`
+	CreatedAt   time.Time            `json:"created_at"`
+	Collections []CollectionManifest `json:"collections"`
+}
+
+type CollectionManifest struct {
+	Name             string                  `json:"name"`
+	Schema           *entity.Schema          `json:"schema"`
+	Partitions       []string                `json:"partitions"`
+	ConsistencyLevel entity.ConsistencyLevel `json:"consistency_level"`
+	ShardNum         int32                   `json:"shard_num"`
+	Properties       map[string]string       `json:"properties,omitempty"`
+	RowCount         int64                   `json:"row_count"`
+	DataFile         string                  `json:"data_file"`
+}
+
+type Row map[string]any

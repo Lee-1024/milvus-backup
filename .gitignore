@@ -1,0 +1,14 @@
+# Build outputs
+bin/
+dist/
+*.out
+*.test
+
+# Local backup data
+/backup/
+*.jsonl
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
