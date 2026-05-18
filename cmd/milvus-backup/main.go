@@ -46,6 +46,9 @@ func runBackup(ctx context.Context, args []string) error {
 	filter := fs.String("filter", "", "optional Milvus filter expression applied to every collection")
 	timeout := fs.Duration("timeout", 0, "operation timeout, for example 30m; 0 disables timeout")
 	_ = fs.Parse(args)
+	if err := rejectExtraArgs(fs); err != nil {
+		return err
+	}
 
 	if *timeout > 0 {
 		var cancel context.CancelFunc
@@ -82,6 +85,9 @@ func runRestore(ctx context.Context, args []string) error {
 	suffix := fs.String("name-suffix", "", "append suffix to restored collection names")
 	timeout := fs.Duration("timeout", 0, "operation timeout, for example 30m; 0 disables timeout")
 	_ = fs.Parse(args)
+	if err := rejectExtraArgs(fs); err != nil {
+		return err
+	}
 
 	if *timeout > 0 {
 		var cancel context.CancelFunc
@@ -139,6 +145,13 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func rejectExtraArgs(fs *flag.FlagSet) error {
+	if fs.NArg() == 0 {
+		return nil
+	}
+	return fmt.Errorf("unexpected positional arguments: %v; check that line-continuation backslashes are the last character on each line", fs.Args())
 }
 
 func usage() {
