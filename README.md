@@ -74,6 +74,8 @@ go build -o bin/milvus-backup ./cmd/milvus-backup
 - `MILVUS_API_KEY`
 - `MILVUS_DB`
 
+运行日志会打印实际连接的数据库，例如 `connected to Milvus: address=localhost:19530 database=mydb tls=false`。如果日志里仍是 `database=default`，通常说明命令没有带到 `-db`，或运行的是旧版本二进制，需要重新构建。
+
 ## 目录格式
 
 ```text
