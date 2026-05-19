@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/milvus-io/milvus/client/v2/column"
@@ -128,17 +129,11 @@ func exportCollection(ctx context.Context, client *milvusclient.Client, name, fi
 	writer := bufio.NewWriterSize(f, 1024*1024)
 	defer writer.Flush()
 
-	iterOpt := milvusclient.NewQueryIteratorOption(name).
-		WithBatchSize(opts.BatchSize).
-		WithOutputFields("*")
-	if opts.Filter != "" {
-		iterOpt = iterOpt.WithFilter(opts.Filter)
-	}
-
 	started := time.Now()
 	dbName := displayDatabase(opts.Database)
-	fmt.Printf("query iterator opening: database=%s collection=%s file=%s filter=%q\n", dbName, name, file, opts.Filter)
-	iter, err := client.QueryIterator(ctx, iterOpt)
+	batchSize := opts.BatchSize
+	fmt.Printf("query iterator opening: database=%s collection=%s file=%s filter=%q batch_size=%d\n", dbName, name, file, opts.Filter, batchSize)
+	iter, err := openQueryIteratorWithRetry(ctx, client, name, opts, batchSize)
 	if err != nil {
 		return 0, fmt.Errorf("create query iterator %s: %w", name, err)
 	}
@@ -178,6 +173,43 @@ func exportCollection(ctx context.Context, client *milvusclient.Client, name, fi
 	}
 	fmt.Printf("query iterator finished: database=%s collection=%s rows=%d batches=%d elapsed=%s\n", dbName, name, total, batch, time.Since(started).Round(time.Second))
 	return total, nil
+}
+
+func openQueryIteratorWithRetry(ctx context.Context, client *milvusclient.Client, name string, opts BackupOptions, batchSize int) (milvusclient.QueryIterator, error) {
+	if batchSize <= 0 {
+		batchSize = 1000
+	}
+	for {
+		iterOpt := milvusclient.NewQueryIteratorOption(name).
+			WithBatchSize(batchSize).
+			WithOutputFields("*")
+		if opts.Filter != "" {
+			iterOpt = iterOpt.WithFilter(opts.Filter)
+		}
+
+		iter, err := client.QueryIterator(ctx, iterOpt)
+		if err == nil {
+			if batchSize != opts.BatchSize {
+				fmt.Printf("query iterator batch size reduced: database=%s collection=%s original_batch_size=%d actual_batch_size=%d\n", displayDatabase(opts.Database), name, opts.BatchSize, batchSize)
+			}
+			return iter, nil
+		}
+		if batchSize <= 1 || !isQueryResultLimitError(err) {
+			return nil, err
+		}
+		nextBatchSize := batchSize / 2
+		if nextBatchSize < 1 {
+			nextBatchSize = 1
+		}
+		fmt.Printf("query iterator result too large, retrying with smaller batch: database=%s collection=%s batch_size=%d next_batch_size=%d error=%q\n", displayDatabase(opts.Database), name, batchSize, nextBatchSize, err.Error())
+		batchSize = nextBatchSize
+	}
+}
+
+func isQueryResultLimitError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "query results exceed the limit size") ||
+		strings.Contains(msg, "exceed the limit size")
 }
 
 func displayDatabase(name string) string {

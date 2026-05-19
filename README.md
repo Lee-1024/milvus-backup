@@ -56,7 +56,7 @@ go build -o bin\milvus-backup.exe .\cmd\milvus-backup
   -collections test001 \
   -in ./backup \
   -drop-existing
-.\bin\milvus-backup.exe restore -address 10.54.56.88:19530 -db test0000 -collections  test001 -in D:\milvus-bak -drop-existing
+.\bin\milvus-backup.exe restore -address 10.54.56.88:19530 -db test0000 -collections  embed_bge -in D:\milvus-bak -drop-existing
 恢复但不覆盖原集合，加后缀：
 ./bin/milvus-backup restore \
   -address 192.168.64.1:19530 \

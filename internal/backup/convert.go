@@ -68,8 +68,9 @@ func copyMap(in map[string]string) map[string]string {
 
 func columnsFromRows(schema *entity.Schema, rows []Row) ([]column.Column, error) {
 	cols := make([]column.Column, 0, len(schema.Fields))
+	functionOutputs := functionOutputFields(schema)
 	for _, field := range schema.Fields {
-		if field.AutoID || field.IsDynamic {
+		if field.AutoID || field.IsDynamic || functionOutputs[field.Name] {
 			continue
 		}
 		col, err := columnFromRows(field, rows)
@@ -79,6 +80,16 @@ func columnsFromRows(schema *entity.Schema, rows []Row) ([]column.Column, error)
 		cols = append(cols, col)
 	}
 	return cols, nil
+}
+
+func functionOutputFields(schema *entity.Schema) map[string]bool {
+	out := make(map[string]bool)
+	for _, fn := range schema.Functions {
+		for _, name := range fn.OutputFieldNames {
+			out[name] = true
+		}
+	}
+	return out
 }
 
 func columnFromRows(field *entity.Field, rows []Row) (column.Column, error) {
@@ -133,7 +144,7 @@ func columnFromRows(field *entity.Field, rows []Row) (column.Column, error) {
 		v, err := collect(rows, name, toInt8Slice)
 		return column.NewColumnInt8Vector(name, dim(field), v), err
 	case entity.FieldTypeSparseVector:
-		v, err := collect(rows, name, toSparseEmbedding)
+		v, err := collectSparseEmbeddings(rows, name)
 		return column.NewColumnSparseVectors(name, v), err
 	case entity.FieldTypeArray:
 		return arrayColumnFromRows(field, rows)
@@ -184,6 +195,22 @@ func collect[T any](rows []Row, name string, conv func(any) (T, error)) ([]T, er
 			continue
 		}
 		typed, err := conv(v)
+		if err != nil {
+			return nil, fmt.Errorf("field %s row %d: %w", name, i, err)
+		}
+		out = append(out, typed)
+	}
+	return out, nil
+}
+
+func collectSparseEmbeddings(rows []Row, name string) ([]entity.SparseEmbedding, error) {
+	out := make([]entity.SparseEmbedding, 0, len(rows))
+	for i, row := range rows {
+		v, ok := row[name]
+		if !ok {
+			v = nil
+		}
+		typed, err := toSparseEmbedding(v)
 		if err != nil {
 			return nil, fmt.Errorf("field %s row %d: %w", name, i, err)
 		}
@@ -258,6 +285,9 @@ func toJSONBytes(v any) ([]byte, error) {
 }
 
 func toSlice(v any) ([]any, error) {
+	if v == nil {
+		return []any{}, nil
+	}
 	in, ok := v.([]any)
 	if !ok {
 		return nil, fmt.Errorf("expected array, got %T", v)
@@ -391,6 +421,8 @@ func toStringSlice(v any) ([]string, error) {
 
 func toSparseEmbedding(v any) (entity.SparseEmbedding, error) {
 	switch x := v.(type) {
+	case nil:
+		return entity.NewSliceSparseEmbedding(nil, nil)
 	case map[string]any:
 		positions := make([]uint32, 0, len(x))
 		values := make([]float32, 0, len(x))
