@@ -29,8 +29,9 @@ go build -o bin/milvus-backup ./cmd/milvus-backup
 
 ```bash
 ./bin/milvus-backup backup \
-  -address localhost:19530 \
-  -collections users,items \
+  -address 192.168.64.1:19530 \
+  -db test000 \
+  -collections  test001 \
   -batch-size 2000 \
   -progress-every 5000 \
   -out ./backup
@@ -54,6 +55,21 @@ go build -o bin/milvus-backup ./cmd/milvus-backup
   -in ./backup \
   -name-suffix _restored
 ```
+只恢复指定集合：
+./bin/milvus-backup restore \
+  -address 192.168.64.1:19530 \
+  -db test000 \
+  -collections test001 \
+  -in ./backup \
+  -drop-existing
+恢复但不覆盖原集合，加后缀：
+./bin/milvus-backup restore \
+  -address 192.168.64.1:19530 \
+  -db test000 \
+  -collections test001 \
+  -in ./backup \
+  -name-suffix _restored
+注意：-collections 指的是备份 manifest 里的原集合名，不是加后缀后的目标名。-db 指的是恢复目标数据库，目标数据库需要已经存在。
 
 ## 连接参数
 
@@ -75,8 +91,6 @@ go build -o bin/milvus-backup ./cmd/milvus-backup
 - `MILVUS_DB`
 
 运行日志会打印实际连接的数据库，例如 `connected to Milvus: address=localhost:19530 database=mydb tls=false`。如果日志里仍是 `database=default`，通常说明命令没有带到 `-db`，或运行的是旧版本二进制，需要重新构建。
-
-指定 `-db` 时，工具会先校验数据库是否存在；指定 `-collections` 时，如果集合不存在，会打印当前数据库下可用集合，便于排查库名或集合名写错。
 
 ## 目录格式
 
