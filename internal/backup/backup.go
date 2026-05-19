@@ -41,6 +41,9 @@ func Backup(ctx context.Context, client *milvusclient.Client, opts BackupOptions
 	for i, name := range names {
 		collectionStarted := time.Now()
 		fmt.Printf("collection backup started: database=%s collection=%s index=%d/%d\n", dbName, name, i+1, len(names))
+		if err := ensureCollectionExists(ctx, client, dbName, name); err != nil {
+			return err
+		}
 		coll, err := client.DescribeCollection(ctx, milvusclient.NewDescribeCollectionOption(name))
 		if err != nil {
 			return fmt.Errorf("describe collection %s: %w", name, err)
@@ -72,6 +75,21 @@ func Backup(ctx context.Context, client *milvusclient.Client, opts BackupOptions
 
 	fmt.Printf("writing manifest: database=%s file=%s collections=%d\n", dbName, filepath.Join(opts.OutputDir, manifestFile), len(manifest.Collections))
 	return writeJSON(filepath.Join(opts.OutputDir, manifestFile), manifest)
+}
+
+func ensureCollectionExists(ctx context.Context, client *milvusclient.Client, dbName, name string) error {
+	exists, err := client.HasCollection(ctx, milvusclient.NewHasCollectionOption(name))
+	if err != nil {
+		return fmt.Errorf("check collection %s in database %s: %w", name, dbName, err)
+	}
+	if exists {
+		return nil
+	}
+	available, listErr := client.ListCollections(ctx, milvusclient.NewListCollectionOption())
+	if listErr != nil {
+		return fmt.Errorf("collection %s not found in database %s; also failed to list collections: %w", name, dbName, listErr)
+	}
+	return fmt.Errorf("collection %s not found in database %s; available collections: %v", name, dbName, available)
 }
 
 func exportCollection(ctx context.Context, client *milvusclient.Client, name, file string, opts BackupOptions) (int64, error) {

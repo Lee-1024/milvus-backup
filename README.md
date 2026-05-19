@@ -76,6 +76,8 @@ go build -o bin/milvus-backup ./cmd/milvus-backup
 
 运行日志会打印实际连接的数据库，例如 `connected to Milvus: address=localhost:19530 database=mydb tls=false`。如果日志里仍是 `database=default`，通常说明命令没有带到 `-db`，或运行的是旧版本二进制，需要重新构建。
 
+指定 `-db` 时，工具会先校验数据库是否存在；指定 `-collections` 时，如果集合不存在，会打印当前数据库下可用集合，便于排查库名或集合名写错。
+
 ## 目录格式
 
 ```text
