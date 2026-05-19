@@ -114,8 +114,8 @@ func runRestore(ctx context.Context, args []string) error {
 	return backup.Restore(ctx, client, opts)
 }
 
-func commonFlags(fs *flag.FlagSet) backup.ClientConfig {
-	cfg := backup.ClientConfig{}
+func commonFlags(fs *flag.FlagSet) *backup.ClientConfig {
+	cfg := &backup.ClientConfig{}
 	fs.StringVar(&cfg.Address, "address", envOr("MILVUS_ADDRESS", "localhost:19530"), "Milvus address")
 	fs.StringVar(&cfg.Username, "username", os.Getenv("MILVUS_USERNAME"), "Milvus username")
 	fs.StringVar(&cfg.Password, "password", os.Getenv("MILVUS_PASSWORD"), "Milvus password")

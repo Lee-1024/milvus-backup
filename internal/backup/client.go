@@ -7,7 +7,8 @@ import (
 	"github.com/milvus-io/milvus/client/v2/milvusclient"
 )
 
-func Open(ctx context.Context, cfg ClientConfig) (*milvusclient.Client, error) {
+func Open(ctx context.Context, cfg *ClientConfig) (*milvusclient.Client, error) {
+	fmt.Printf("connecting to Milvus: address=%s database=%s tls=%v\n", cfg.Address, displayDatabase(cfg.DBName), cfg.TLS)
 	client, err := milvusclient.New(ctx, &milvusclient.ClientConfig{
 		Address:       cfg.Address,
 		Username:      cfg.Username,
