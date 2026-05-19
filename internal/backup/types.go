@@ -23,6 +23,7 @@ type BackupOptions struct {
 	BatchSize     int
 	ProgressEvery int64
 	Filter        string
+	SkipFailed    bool
 	Database      string
 	StartedAtUTC  time.Time
 }
@@ -39,9 +40,10 @@ type RestoreOptions struct {
 }
 
 type Manifest struct {
-	Version     int                  `json:"version"`
-	CreatedAt   time.Time            `json:"created_at"`
-	Collections []CollectionManifest `json:"collections"`
+	Version            int                  `json:"version"`
+	CreatedAt          time.Time            `json:"created_at"`
+	Collections        []CollectionManifest `json:"collections"`
+	SkippedCollections []SkippedCollection  `json:"skipped_collections,omitempty"`
 }
 
 type CollectionManifest struct {
@@ -53,6 +55,11 @@ type CollectionManifest struct {
 	Properties       map[string]string       `json:"properties,omitempty"`
 	RowCount         int64                   `json:"row_count"`
 	DataFile         string                  `json:"data_file"`
+}
+
+type SkippedCollection struct {
+	Name  string `json:"name"`
+	Error string `json:"error"`
 }
 
 type Row map[string]any

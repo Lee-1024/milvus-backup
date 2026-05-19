@@ -44,6 +44,7 @@ func runBackup(ctx context.Context, args []string) error {
 	batchSize := fs.Int("batch-size", 1000, "query iterator batch size")
 	progressEvery := fs.Int64("progress-every", 10000, "print progress every N rows; 0 disables row progress logs")
 	filter := fs.String("filter", "", "optional Milvus filter expression applied to every collection")
+	skipFailed := fs.Bool("skip-failed", false, "skip collections that fail to back up and continue with remaining collections")
 	timeout := fs.Duration("timeout", 0, "operation timeout, for example 30m; 0 disables timeout")
 	_ = fs.Parse(args)
 	if err := rejectExtraArgs(fs); err != nil {
@@ -68,6 +69,7 @@ func runBackup(ctx context.Context, args []string) error {
 		BatchSize:     *batchSize,
 		ProgressEvery: *progressEvery,
 		Filter:        *filter,
+		SkipFailed:    *skipFailed,
 		Database:      cfg.DBName,
 		StartedAtUTC:  time.Now().UTC(),
 	}

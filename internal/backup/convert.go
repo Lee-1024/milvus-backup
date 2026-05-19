@@ -19,6 +19,15 @@ func normalizeValue(v any) any {
 		return json.RawMessage(x)
 	case time.Time:
 		return x.Format(time.RFC3339Nano)
+	case entity.SparseEmbedding:
+		out := make(map[string]float32, x.Len())
+		for i := 0; i < x.Len(); i++ {
+			pos, value, ok := x.Get(i)
+			if ok {
+				out[strconv.FormatUint(uint64(pos), 10)] = value
+			}
+		}
+		return out
 	default:
 		return x
 	}
@@ -123,6 +132,9 @@ func columnFromRows(field *entity.Field, rows []Row) (column.Column, error) {
 	case entity.FieldTypeInt8Vector:
 		v, err := collect(rows, name, toInt8Slice)
 		return column.NewColumnInt8Vector(name, dim(field), v), err
+	case entity.FieldTypeSparseVector:
+		v, err := collect(rows, name, toSparseEmbedding)
+		return column.NewColumnSparseVectors(name, v), err
 	case entity.FieldTypeArray:
 		return arrayColumnFromRows(field, rows)
 	default:
@@ -375,4 +387,45 @@ func toStringSlice(v any) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+func toSparseEmbedding(v any) (entity.SparseEmbedding, error) {
+	switch x := v.(type) {
+	case map[string]any:
+		positions := make([]uint32, 0, len(x))
+		values := make([]float32, 0, len(x))
+		for key, value := range x {
+			pos, err := strconv.ParseUint(key, 10, 32)
+			if err != nil {
+				return nil, fmt.Errorf("invalid sparse vector index %q: %w", key, err)
+			}
+			n, err := toFloat64(value)
+			if err != nil {
+				return nil, err
+			}
+			positions = append(positions, uint32(pos))
+			values = append(values, float32(n))
+		}
+		return entity.NewSliceSparseEmbedding(positions, values)
+	case map[string]float32:
+		positions := make([]uint32, 0, len(x))
+		values := make([]float32, 0, len(x))
+		for key, value := range x {
+			pos, err := strconv.ParseUint(key, 10, 32)
+			if err != nil {
+				return nil, fmt.Errorf("invalid sparse vector index %q: %w", key, err)
+			}
+			positions = append(positions, uint32(pos))
+			values = append(values, value)
+		}
+		return entity.NewSliceSparseEmbedding(positions, values)
+	case string:
+		b, err := base64.StdEncoding.DecodeString(x)
+		if err != nil {
+			return nil, fmt.Errorf("expected sparse vector object or base64 bytes, got string: %w", err)
+		}
+		return entity.DeserializeSliceSparseEmbedding(b)
+	default:
+		return nil, fmt.Errorf("expected sparse vector object, got %T", v)
+	}
 }

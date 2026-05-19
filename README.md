@@ -13,7 +13,7 @@
 ## 构建
 
 ```bash
-go build -o bin/milvus-backup ./cmd/milvus-backup
+go build -o bin\milvus-backup.exe .\cmd\milvus-backup
 ```
 
 ## 备份
@@ -28,13 +28,7 @@ go build -o bin/milvus-backup ./cmd/milvus-backup
 只备份指定集合：
 
 ```bash
-./bin/milvus-backup backup \
-  -address 192.168.64.1:19530 \
-  -db test000 \
-  -collections  test001 \
-  -batch-size 2000 \
-  -progress-every 5000 \
-  -out ./backup
+.\bin\milvus-backup.exe backup -address 10.54.56.88:19530 -db test0000 -collections  test001 -batch-size 2000 -progress-every 5000 -out D:\milvus-bak -skip-failed
 ```
 
 ## 恢复
@@ -62,6 +56,7 @@ go build -o bin/milvus-backup ./cmd/milvus-backup
   -collections test001 \
   -in ./backup \
   -drop-existing
+.\bin\milvus-backup.exe restore -address 10.54.56.88:19530 -db test0000 -collections  test001 -in D:\milvus-bak -drop-existing
 恢复但不覆盖原集合，加后缀：
 ./bin/milvus-backup restore \
   -address 192.168.64.1:19530 \

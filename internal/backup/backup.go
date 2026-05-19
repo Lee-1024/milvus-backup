@@ -42,22 +42,36 @@ func Backup(ctx context.Context, client *milvusclient.Client, opts BackupOptions
 		collectionStarted := time.Now()
 		fmt.Printf("collection backup started: database=%s collection=%s index=%d/%d\n", dbName, name, i+1, len(names))
 		if err := ensureCollectionExists(ctx, client, dbName, name); err != nil {
+			if skipCollection(&manifest, opts, name, err) {
+				continue
+			}
 			return err
 		}
 		coll, err := client.DescribeCollection(ctx, milvusclient.NewDescribeCollectionOption(name))
 		if err != nil {
-			return fmt.Errorf("describe collection %s: %w", name, err)
+			err = fmt.Errorf("describe collection %s: %w", name, err)
+			if skipCollection(&manifest, opts, name, err) {
+				continue
+			}
+			return err
 		}
 		fmt.Printf("collection schema loaded: database=%s collection=%s fields=%d shard_num=%d consistency=%v\n", dbName, name, len(coll.Schema.Fields), coll.ShardNum, coll.ConsistencyLevel)
 		partitions, err := client.ListPartitions(ctx, milvusclient.NewListPartitionOption(name))
 		if err != nil {
-			return fmt.Errorf("list partitions %s: %w", name, err)
+			err = fmt.Errorf("list partitions %s: %w", name, err)
+			if skipCollection(&manifest, opts, name, err) {
+				continue
+			}
+			return err
 		}
 		fmt.Printf("collection partitions loaded: database=%s collection=%s partitions=%v\n", dbName, name, partitions)
 
 		dataFile := fmt.Sprintf("%s.jsonl", name)
 		rows, err := exportCollection(ctx, client, name, filepath.Join(opts.OutputDir, dataFile), opts)
 		if err != nil {
+			if skipCollection(&manifest, opts, name, err) {
+				continue
+			}
 			return err
 		}
 		manifest.Collections = append(manifest.Collections, CollectionManifest{
@@ -73,8 +87,20 @@ func Backup(ctx context.Context, client *milvusclient.Client, opts BackupOptions
 		fmt.Printf("collection backup finished: database=%s collection=%s rows=%d elapsed=%s total_elapsed=%s\n", dbName, name, rows, time.Since(collectionStarted).Round(time.Second), time.Since(allStarted).Round(time.Second))
 	}
 
-	fmt.Printf("writing manifest: database=%s file=%s collections=%d\n", dbName, filepath.Join(opts.OutputDir, manifestFile), len(manifest.Collections))
+	fmt.Printf("writing manifest: database=%s file=%s collections=%d skipped=%d\n", dbName, filepath.Join(opts.OutputDir, manifestFile), len(manifest.Collections), len(manifest.SkippedCollections))
 	return writeJSON(filepath.Join(opts.OutputDir, manifestFile), manifest)
+}
+
+func skipCollection(manifest *Manifest, opts BackupOptions, name string, err error) bool {
+	if !opts.SkipFailed {
+		return false
+	}
+	manifest.SkippedCollections = append(manifest.SkippedCollections, SkippedCollection{
+		Name:  name,
+		Error: err.Error(),
+	})
+	fmt.Printf("collection backup skipped: database=%s collection=%s error=%q\n", displayDatabase(opts.Database), name, err.Error())
+	return true
 }
 
 func ensureCollectionExists(ctx context.Context, client *milvusclient.Client, dbName, name string) error {
