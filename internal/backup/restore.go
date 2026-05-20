@@ -84,8 +84,10 @@ func restoreCollection(ctx context.Context, client *milvusclient.Client, opts Re
 		}
 	}
 
-	if err := importRows(ctx, client, filepath.Join(opts.InputDir, coll.DataFile), schema, targetName, opts.BatchSize, opts.ProgressEvery); err != nil {
-		return err
+	for _, dataFile := range coll.DataFiles() {
+		if err := importRows(ctx, client, filepath.Join(opts.InputDir, dataFile.File), schema, targetName, dataFile.Partition, opts.BatchSize, opts.ProgressEvery); err != nil {
+			return err
+		}
 	}
 	fmt.Printf("flushing collection: database=%s collection=%s\n", displayDatabase(opts.Database), targetName)
 	if _, err := client.Flush(ctx, milvusclient.NewFlushOption(targetName)); err != nil {
@@ -94,7 +96,7 @@ func restoreCollection(ctx context.Context, client *milvusclient.Client, opts Re
 	return nil
 }
 
-func importRows(ctx context.Context, client *milvusclient.Client, path string, schema *entity.Schema, collectionName string, batchSize int, progressEvery int64) error {
+func importRows(ctx context.Context, client *milvusclient.Client, path string, schema *entity.Schema, collectionName, partition string, batchSize int, progressEvery int64) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -113,19 +115,23 @@ func importRows(ctx context.Context, client *milvusclient.Client, path string, s
 		}
 		batch++
 		pending := len(rows)
-		fmt.Printf("insert batch started: collection=%s batch=%d rows=%d total_before=%d elapsed=%s\n", collectionName, batch, pending, total, time.Since(started).Round(time.Second))
+		fmt.Printf("insert batch started: collection=%s partition=%s batch=%d rows=%d total_before=%d elapsed=%s\n", collectionName, partition, batch, pending, total, time.Since(started).Round(time.Second))
 		cols, err := columnsFromRows(schema, rows)
 		if err != nil {
 			return err
 		}
-		_, err = client.Insert(ctx, milvusclient.NewColumnBasedInsertOption(collectionName, cols...))
+		insert := milvusclient.NewColumnBasedInsertOption(collectionName, cols...)
+		if partition != "" {
+			insert = insert.WithPartition(partition)
+		}
+		_, err = client.Insert(ctx, insert)
 		if err != nil {
 			return err
 		}
 		total += int64(pending)
-		fmt.Printf("insert batch finished: collection=%s batch=%d total_rows=%d elapsed=%s\n", collectionName, batch, total, time.Since(started).Round(time.Second))
+		fmt.Printf("insert batch finished: collection=%s partition=%s batch=%d total_rows=%d elapsed=%s\n", collectionName, partition, batch, total, time.Since(started).Round(time.Second))
 		if progressEvery > 0 && total >= nextProgress {
-			fmt.Printf("restore progress: collection=%s rows=%d elapsed=%s\n", collectionName, total, time.Since(started).Round(time.Second))
+			fmt.Printf("restore progress: collection=%s partition=%s rows=%d elapsed=%s\n", collectionName, partition, total, time.Since(started).Round(time.Second))
 			nextProgress += progressEvery
 		}
 		rows = rows[:0]
@@ -135,8 +141,8 @@ func importRows(ctx context.Context, client *milvusclient.Client, path string, s
 	for {
 		line, err := reader.ReadBytes('\n')
 		if len(line) > 0 {
-			var row Row
-			if decErr := json.Unmarshal(line, &row); decErr != nil {
+			row, decErr := decodeRow(line)
+			if decErr != nil {
 				return decErr
 			}
 			rows = append(rows, row)
@@ -156,7 +162,7 @@ func importRows(ctx context.Context, client *milvusclient.Client, path string, s
 	if err := flush(); err != nil {
 		return err
 	}
-	fmt.Printf("import rows finished: collection=%s rows=%d batches=%d elapsed=%s\n", collectionName, total, batch, time.Since(started).Round(time.Second))
+	fmt.Printf("import rows finished: collection=%s partition=%s rows=%d batches=%d elapsed=%s\n", collectionName, partition, total, batch, time.Since(started).Round(time.Second))
 	return nil
 }
 

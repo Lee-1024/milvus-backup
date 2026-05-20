@@ -67,18 +67,22 @@ func Backup(ctx context.Context, client *milvusclient.Client, opts BackupOptions
 		}
 		fmt.Printf("collection partitions loaded: database=%s collection=%s partitions=%v\n", dbName, name, partitions)
 
-		dataFile := fmt.Sprintf("%s.jsonl", name)
-		rows, err := exportCollection(ctx, client, name, filepath.Join(opts.OutputDir, dataFile), opts)
+		partitionFiles, rows, err := exportCollectionPartitions(ctx, client, name, partitions, opts)
 		if err != nil {
 			if skipCollection(&manifest, opts, name, err) {
 				continue
 			}
 			return err
 		}
+		dataFile := ""
+		if len(partitionFiles) == 1 && partitionFiles[0].Partition == defaultPartitionName {
+			dataFile = partitionFiles[0].File
+		}
 		manifest.Collections = append(manifest.Collections, CollectionManifest{
 			Name:             name,
 			Schema:           coll.Schema,
 			Partitions:       partitions,
+			PartitionFiles:   partitionFiles,
 			ConsistencyLevel: coll.ConsistencyLevel,
 			ShardNum:         coll.ShardNum,
 			Properties:       coll.Properties,
@@ -90,6 +94,28 @@ func Backup(ctx context.Context, client *milvusclient.Client, opts BackupOptions
 
 	fmt.Printf("writing manifest: database=%s file=%s collections=%d skipped=%d\n", dbName, filepath.Join(opts.OutputDir, manifestFile), len(manifest.Collections), len(manifest.SkippedCollections))
 	return writeJSON(filepath.Join(opts.OutputDir, manifestFile), manifest)
+}
+
+func exportCollectionPartitions(ctx context.Context, client *milvusclient.Client, name string, partitions []string, opts BackupOptions) ([]PartitionDataFile, int64, error) {
+	if len(partitions) == 0 {
+		partitions = []string{defaultPartitionName}
+	}
+	files := make([]PartitionDataFile, 0, len(partitions))
+	var total int64
+	for _, partition := range partitions {
+		dataFile := partitionDataFile(name, partition)
+		rows, err := exportCollection(ctx, client, name, partition, filepath.Join(opts.OutputDir, dataFile), opts)
+		if err != nil {
+			return nil, total, err
+		}
+		files = append(files, PartitionDataFile{
+			Partition: partition,
+			File:      dataFile,
+			RowCount:  rows,
+		})
+		total += rows
+	}
+	return files, total, nil
 }
 
 func skipCollection(manifest *Manifest, opts BackupOptions, name string, err error) bool {
@@ -119,7 +145,7 @@ func ensureCollectionExists(ctx context.Context, client *milvusclient.Client, db
 	return fmt.Errorf("collection %s not found in database %s; available collections: %v", name, dbName, available)
 }
 
-func exportCollection(ctx context.Context, client *milvusclient.Client, name, file string, opts BackupOptions) (int64, error) {
+func exportCollection(ctx context.Context, client *milvusclient.Client, name, partition, file string, opts BackupOptions) (int64, error) {
 	f, err := os.Create(file)
 	if err != nil {
 		return 0, err
@@ -132,12 +158,12 @@ func exportCollection(ctx context.Context, client *milvusclient.Client, name, fi
 	started := time.Now()
 	dbName := displayDatabase(opts.Database)
 	batchSize := opts.BatchSize
-	fmt.Printf("query iterator opening: database=%s collection=%s file=%s filter=%q batch_size=%d\n", dbName, name, file, opts.Filter, batchSize)
-	iter, err := openQueryIteratorWithRetry(ctx, client, name, opts, batchSize)
+	fmt.Printf("query iterator opening: database=%s collection=%s partition=%s file=%s filter=%q batch_size=%d\n", dbName, name, partition, file, opts.Filter, batchSize)
+	iter, err := openQueryIteratorWithRetry(ctx, client, name, partition, opts, batchSize)
 	if err != nil {
-		return 0, fmt.Errorf("create query iterator %s: %w", name, err)
+		return 0, fmt.Errorf("create query iterator %s/%s: %w", name, partition, err)
 	}
-	fmt.Printf("query iterator opened: database=%s collection=%s\n", dbName, name)
+	fmt.Printf("query iterator opened: database=%s collection=%s partition=%s\n", dbName, name, partition)
 
 	var total int64
 	var batch int64
@@ -148,10 +174,10 @@ func exportCollection(ctx context.Context, client *milvusclient.Client, name, fi
 			break
 		}
 		if err != nil {
-			return total, fmt.Errorf("query %s: %w", name, err)
+			return total, fmt.Errorf("query %s/%s: %w", name, partition, err)
 		}
 		batch++
-		fmt.Printf("query batch received: database=%s collection=%s batch=%d rows=%d total_before=%d elapsed=%s\n", dbName, name, batch, rs.ResultCount, total, time.Since(started).Round(time.Second))
+		fmt.Printf("query batch received: database=%s collection=%s partition=%s batch=%d rows=%d total_before=%d elapsed=%s\n", dbName, name, partition, batch, rs.ResultCount, total, time.Since(started).Round(time.Second))
 		for i := 0; i < rs.ResultCount; i++ {
 			row, err := rowFromColumns(rs.Fields, i)
 			if err != nil {
@@ -166,16 +192,16 @@ func exportCollection(ctx context.Context, client *milvusclient.Client, name, fi
 			}
 			total++
 			if opts.ProgressEvery > 0 && total >= nextProgress {
-				fmt.Printf("backup progress: database=%s collection=%s rows=%d elapsed=%s\n", dbName, name, total, time.Since(started).Round(time.Second))
+				fmt.Printf("backup progress: database=%s collection=%s partition=%s rows=%d elapsed=%s\n", dbName, name, partition, total, time.Since(started).Round(time.Second))
 				nextProgress += opts.ProgressEvery
 			}
 		}
 	}
-	fmt.Printf("query iterator finished: database=%s collection=%s rows=%d batches=%d elapsed=%s\n", dbName, name, total, batch, time.Since(started).Round(time.Second))
+	fmt.Printf("query iterator finished: database=%s collection=%s partition=%s rows=%d batches=%d elapsed=%s\n", dbName, name, partition, total, batch, time.Since(started).Round(time.Second))
 	return total, nil
 }
 
-func openQueryIteratorWithRetry(ctx context.Context, client *milvusclient.Client, name string, opts BackupOptions, batchSize int) (milvusclient.QueryIterator, error) {
+func openQueryIteratorWithRetry(ctx context.Context, client *milvusclient.Client, name, partition string, opts BackupOptions, batchSize int) (milvusclient.QueryIterator, error) {
 	if batchSize <= 0 {
 		batchSize = 1000
 	}
@@ -183,6 +209,9 @@ func openQueryIteratorWithRetry(ctx context.Context, client *milvusclient.Client
 		iterOpt := milvusclient.NewQueryIteratorOption(name).
 			WithBatchSize(batchSize).
 			WithOutputFields("*")
+		if partition != "" {
+			iterOpt = iterOpt.WithPartitions(partition)
+		}
 		if opts.Filter != "" {
 			iterOpt = iterOpt.WithFilter(opts.Filter)
 		}
@@ -190,7 +219,7 @@ func openQueryIteratorWithRetry(ctx context.Context, client *milvusclient.Client
 		iter, err := client.QueryIterator(ctx, iterOpt)
 		if err == nil {
 			if batchSize != opts.BatchSize {
-				fmt.Printf("query iterator batch size reduced: database=%s collection=%s original_batch_size=%d actual_batch_size=%d\n", displayDatabase(opts.Database), name, opts.BatchSize, batchSize)
+				fmt.Printf("query iterator batch size reduced: database=%s collection=%s partition=%s original_batch_size=%d actual_batch_size=%d\n", displayDatabase(opts.Database), name, partition, opts.BatchSize, batchSize)
 			}
 			return iter, nil
 		}
@@ -201,7 +230,7 @@ func openQueryIteratorWithRetry(ctx context.Context, client *milvusclient.Client
 		if nextBatchSize < 1 {
 			nextBatchSize = 1
 		}
-		fmt.Printf("query iterator result too large, retrying with smaller batch: database=%s collection=%s batch_size=%d next_batch_size=%d error=%q\n", displayDatabase(opts.Database), name, batchSize, nextBatchSize, err.Error())
+		fmt.Printf("query iterator result too large, retrying with smaller batch: database=%s collection=%s partition=%s batch_size=%d next_batch_size=%d error=%q\n", displayDatabase(opts.Database), name, partition, batchSize, nextBatchSize, err.Error())
 		batchSize = nextBatchSize
 	}
 }

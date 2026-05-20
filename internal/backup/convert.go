@@ -1,9 +1,11 @@
 package backup
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -99,13 +101,13 @@ func columnFromRows(field *entity.Field, rows []Row) (column.Column, error) {
 		v, err := collect(rows, name, toBool)
 		return column.NewColumnBool(name, v), err
 	case entity.FieldTypeInt8:
-		v, err := collect(rows, name, func(x any) (int8, error) { n, e := toInt64(x); return int8(n), e })
+		v, err := collect(rows, name, toInt8)
 		return column.NewColumnInt8(name, v), err
 	case entity.FieldTypeInt16:
-		v, err := collect(rows, name, func(x any) (int16, error) { n, e := toInt64(x); return int16(n), e })
+		v, err := collect(rows, name, toInt16)
 		return column.NewColumnInt16(name, v), err
 	case entity.FieldTypeInt32:
-		v, err := collect(rows, name, func(x any) (int32, error) { n, e := toInt64(x); return int32(n), e })
+		v, err := collect(rows, name, toInt32)
 		return column.NewColumnInt32(name, v), err
 	case entity.FieldTypeInt64:
 		v, err := collect(rows, name, toInt64)
@@ -130,19 +132,54 @@ func columnFromRows(field *entity.Field, rows []Row) (column.Column, error) {
 		return column.NewColumnGeometryWKT(name, v), err
 	case entity.FieldTypeFloatVector:
 		v, err := collect(rows, name, toFloat32Slice)
-		return column.NewColumnFloatVector(name, dim(field), v), err
+		if err != nil {
+			return nil, err
+		}
+		d, err := dim(field)
+		if err != nil {
+			return nil, err
+		}
+		return column.NewColumnFloatVector(name, d, v), nil
 	case entity.FieldTypeBinaryVector:
 		v, err := collect(rows, name, toBytes)
-		return column.NewColumnBinaryVector(name, dim(field), v), err
+		if err != nil {
+			return nil, err
+		}
+		d, err := dim(field)
+		if err != nil {
+			return nil, err
+		}
+		return column.NewColumnBinaryVector(name, d, v), nil
 	case entity.FieldTypeFloat16Vector:
 		v, err := collect(rows, name, toBytes)
-		return column.NewColumnFloat16Vector(name, dim(field), v), err
+		if err != nil {
+			return nil, err
+		}
+		d, err := dim(field)
+		if err != nil {
+			return nil, err
+		}
+		return column.NewColumnFloat16Vector(name, d, v), nil
 	case entity.FieldTypeBFloat16Vector:
 		v, err := collect(rows, name, toBytes)
-		return column.NewColumnBFloat16Vector(name, dim(field), v), err
+		if err != nil {
+			return nil, err
+		}
+		d, err := dim(field)
+		if err != nil {
+			return nil, err
+		}
+		return column.NewColumnBFloat16Vector(name, d, v), nil
 	case entity.FieldTypeInt8Vector:
 		v, err := collect(rows, name, toInt8Slice)
-		return column.NewColumnInt8Vector(name, dim(field), v), err
+		if err != nil {
+			return nil, err
+		}
+		d, err := dim(field)
+		if err != nil {
+			return nil, err
+		}
+		return column.NewColumnInt8Vector(name, d, v), nil
 	case entity.FieldTypeSparseVector:
 		v, err := collectSparseEmbeddings(rows, name)
 		return column.NewColumnSparseVectors(name, v), err
@@ -219,9 +256,16 @@ func collectSparseEmbeddings(rows []Row, name string) ([]entity.SparseEmbedding,
 	return out, nil
 }
 
-func dim(field *entity.Field) int {
-	n, _ := strconv.Atoi(field.TypeParams["dim"])
-	return n
+func dim(field *entity.Field) (int, error) {
+	raw := field.TypeParams["dim"]
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		if raw == "" {
+			raw = "<missing>"
+		}
+		return 0, fmt.Errorf("field %s has invalid dim %q", field.Name, raw)
+	}
+	return n, nil
 }
 
 func toBool(v any) (bool, error) {
@@ -243,6 +287,9 @@ func toString(v any) (string, error) {
 func toInt64(v any) (int64, error) {
 	switch x := v.(type) {
 	case float64:
+		if x < math.MinInt64 || x > math.MaxInt64 || math.Trunc(x) != x {
+			return 0, fmt.Errorf("expected int64-compatible number, got %v", x)
+		}
 		return int64(x), nil
 	case int64:
 		return x, nil
@@ -251,6 +298,39 @@ func toInt64(v any) (int64, error) {
 	default:
 		return 0, fmt.Errorf("expected number, got %T", v)
 	}
+}
+
+func toInt8(v any) (int8, error) {
+	n, err := toInt64(v)
+	if err != nil {
+		return 0, err
+	}
+	if n < math.MinInt8 || n > math.MaxInt8 {
+		return 0, fmt.Errorf("%d out of range for int8", n)
+	}
+	return int8(n), nil
+}
+
+func toInt16(v any) (int16, error) {
+	n, err := toInt64(v)
+	if err != nil {
+		return 0, err
+	}
+	if n < math.MinInt16 || n > math.MaxInt16 {
+		return 0, fmt.Errorf("%d out of range for int16", n)
+	}
+	return int16(n), nil
+}
+
+func toInt32(v any) (int32, error) {
+	n, err := toInt64(v)
+	if err != nil {
+		return 0, err
+	}
+	if n < math.MinInt32 || n > math.MaxInt32 {
+		return 0, fmt.Errorf("%d out of range for int32", n)
+	}
+	return int32(n), nil
 }
 
 func toFloat64(v any) (float64, error) {
@@ -333,11 +413,11 @@ func toInt8Slice(v any) ([]int8, error) {
 	}
 	out := make([]int8, len(in))
 	for i, x := range in {
-		n, err := toInt64(x)
+		n, err := toInt8(x)
 		if err != nil {
 			return nil, err
 		}
-		out[i] = int8(n)
+		out[i] = n
 	}
 	return out, nil
 }
@@ -460,4 +540,14 @@ func toSparseEmbedding(v any) (entity.SparseEmbedding, error) {
 	default:
 		return nil, fmt.Errorf("expected sparse vector object, got %T", v)
 	}
+}
+
+func decodeRow(line []byte) (Row, error) {
+	dec := json.NewDecoder(bytes.NewReader(line))
+	dec.UseNumber()
+	var row Row
+	if err := dec.Decode(&row); err != nil {
+		return nil, err
+	}
+	return row, nil
 }

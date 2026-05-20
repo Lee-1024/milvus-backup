@@ -50,11 +50,28 @@ type CollectionManifest struct {
 	Name             string                  `json:"name"`
 	Schema           *entity.Schema          `json:"schema"`
 	Partitions       []string                `json:"partitions"`
+	PartitionFiles   []PartitionDataFile     `json:"partition_files,omitempty"`
 	ConsistencyLevel entity.ConsistencyLevel `json:"consistency_level"`
 	ShardNum         int32                   `json:"shard_num"`
 	Properties       map[string]string       `json:"properties,omitempty"`
 	RowCount         int64                   `json:"row_count"`
 	DataFile         string                  `json:"data_file"`
+}
+
+type PartitionDataFile struct {
+	Partition string `json:"partition"`
+	File      string `json:"file"`
+	RowCount  int64  `json:"row_count"`
+}
+
+func (m CollectionManifest) DataFiles() []PartitionDataFile {
+	if len(m.PartitionFiles) > 0 {
+		return m.PartitionFiles
+	}
+	if m.DataFile == "" {
+		return nil
+	}
+	return []PartitionDataFile{{File: m.DataFile, RowCount: m.RowCount}}
 }
 
 type SkippedCollection struct {
